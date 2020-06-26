@@ -23,6 +23,13 @@ from habitat_sim.utils.common import (
     download_and_unzip,
     quat_from_angle_axis,
 )
+from deduce import get_semantic_class
+from argparse import Namespace
+import srt
+from datetime import timedelta
+from pathlib import Path
+import subprocess
+import glob
 
 _barrier = None
 
@@ -37,12 +44,23 @@ class ABTestGroup(Enum):
     CONTROL = 1
     TEST = 2
 
+def append_subtitle(filename, idx, content, framerate=10):
+    if Path(filename).exists():
+        subs = list(srt.parse(open(filename).read()))
+    else:
+        subs = []
+    subs.append(srt.Subtitle(idx, start=timedelta(seconds=(idx-1)/framerate),
+                             end=timedelta(seconds=idx/framerate),
+                             content=content))
+    with open(filename, "w") as f: f.write(srt.compose(subs))
 
 class DemoRunner:
     def __init__(self, sim_settings, simulator_demo_type):
         if simulator_demo_type == DemoRunnerType.EXAMPLE:
             self.set_sim_settings(sim_settings)
         self._demo_type = simulator_demo_type
+        if self._sim_settings["save_png"]:
+            Path("test.rgba.room_type.srt").unlink()
 
     def set_sim_settings(self, sim_settings):
         self._sim_settings = sim_settings.copy()
@@ -53,10 +71,16 @@ class DemoRunner:
         if self._demo_type == DemoRunnerType.AB_TEST:
             if self._group_id == ABTestGroup.CONTROL:
                 color_img.save("test.rgba.control.%05d.png" % total_frames)
+                append_subtitle("test.rgba.room_type.srt", total_frames,
+                                obs["room_type"])
             else:
                 color_img.save("test.rgba.test.%05d.png" % total_frames)
+                append_subtitle("test.rgba.room_type.srt", total_frames,
+                                obs["room_type"])
         else:
             color_img.save("test.rgba.%05d.png" % total_frames)
+            append_subtitle("test.rgba.room_type.srt", total_frames,
+                            obs["room_type"])
 
     def save_semantic_observation(self, obs, total_frames):
         semantic_obs = obs["semantic_sensor"]
@@ -251,6 +275,10 @@ class DemoRunner:
             observations = self._sim.step(action)
             time_per_step.append(time.time() - start_step_time)
 
+            observations["room_type"] = get_semantic_class(
+                Image.fromarray(observations["color_sensor"], mode="RGBA")
+                .convert(mode="RGB"))
+
             # get simulation step time without sensor observations
             total_sim_step_time += self._sim._previous_step_time
 
@@ -424,5 +452,9 @@ class DemoRunner:
         perf = self.do_time_steps()
         self._sim.close()
         del self._sim
+        if self._sim_settings["save_png"]:
+            subprocess.run("""ffmpeg -y -i test.rgba.%05d.png  -framerate 10 -vf subtitles=test.rgba.room_type.srt {scene}.mp4""".format(scene=self._sim_settings["scene"]).split())
+            for f in glob.glob("test.rgba.????.png"):
+                os.unlink(f)
 
         return perf
