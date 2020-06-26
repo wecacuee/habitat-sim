@@ -44,6 +44,9 @@ class ABTestGroup(Enum):
     CONTROL = 1
     TEST = 2
 
+def pathstem(fname):
+    return str(Path(fname).stem)
+
 def append_subtitle(filename, idx, content, framerate=10):
     if Path(filename).exists():
         subs = list(srt.parse(open(filename).read()))
@@ -453,8 +456,8 @@ class DemoRunner:
         self._sim.close()
         del self._sim
         if self._sim_settings["save_png"]:
-            subprocess.run("""ffmpeg -y -i test.rgba.%05d.png  -framerate 10 -vf subtitles=test.rgba.room_type.srt {scene}.mp4""".format(scene=self._sim_settings["scene"]).split())
-            for f in glob.glob("test.rgba.????.png"):
+            subprocess.run("""ffmpeg -y -i test.rgba.%05d.png  -framerate 10 -vf subtitles=test.rgba.room_type.srt {scene}.mp4""".format(scene=pathstem(self._sim_settings["scene"])).split())
+            for f in glob.glob("test.rgba.*.png"):
                 os.unlink(f)
 
         return perf
